@@ -60,7 +60,7 @@ public partial struct ShootingSystem : ISystem
 
                 state.EntityManager.SetComponentData(cannonBallEntity, new CannonBall
                 {
-                    Velocity = direction * 12.0f // Adjust speed as needed
+                    Velocity = direction * 20.0f // Adjust speed as needed
                 });
             }
         }

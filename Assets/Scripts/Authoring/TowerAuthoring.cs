@@ -15,6 +15,7 @@ public class TowerAuthoring : MonoBehaviour
             {
                 Spawner = GetEntity(authoring.Spawner, TransformUsageFlags.Dynamic),
             });
+            AddComponent(entity, new DefensiveBuilding {});
         }
     }
 }

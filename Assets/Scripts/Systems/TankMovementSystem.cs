@@ -1,4 +1,5 @@
 using Unity.Burst;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
@@ -10,38 +11,69 @@ public partial struct TankMovementSystem : ISystem
     {
         var dt = SystemAPI.Time.DeltaTime;
 
-        // For each entity having a LocalTransform and Tank component, 
-        // we access the LocalTransform and entity ID.
+        // Create a NativeList to hold all DefensiveBuilding positions.
+        using var defensiveBuildingPositions = new NativeList<float3>(Allocator.TempJob);
+
+        // Query all entities with the DefensiveBuilding tag and store their positions.
+        foreach (var transform in SystemAPI.Query<RefRO<LocalTransform>>().WithAll<DefensiveBuilding>())
+        {
+            var position = transform.ValueRO.Position;
+            // Ignore Y position for DefensiveBuildings.
+            position.y = 0;
+            defensiveBuildingPositions.Add(position);
+        }
+
+        // For each entity having a LocalTransform and Tank component,
+        // exclude the player tank from the query.
         foreach (var (transform, entity) in SystemAPI.Query<RefRW<LocalTransform>>()
                 .WithAll<Tank>()
-                .WithNone<Player>()  // exclude the player tank from the query
+                .WithNone<Player>()
                 .WithEntityAccess())
         {
-            var pos = transform.ValueRO.Position;
+            float3 currentPosition = transform.ValueRO.Position;
+            currentPosition.y = 0; // Ignore Y position of the tank.
 
-            // This does not modify the actual position of the tank, only the point at
-            // which we sample the 3D noise function. This way, every tank is using a
-            // different slice and will move along its own different random flow field.
-            pos.y = (float)entity.Index;
-
-            var angle = (0.5f + noise.cnoise(pos / 10f)) * 4.0f * math.PI;
-            var dir = float3.zero;
-            math.sincos(angle, out dir.x, out dir.z);
-
-            // Update the LocalTransform.
-            transform.ValueRW.Position += dir * dt * 5.0f;
-            transform.ValueRW.Rotation = quaternion.RotateY(angle);
-
-            var spin = quaternion.RotateY(SystemAPI.Time.DeltaTime * math.PI);
-
-            foreach (var tank in
-                    SystemAPI.Query<RefRW<Tank>>())
+            if (defensiveBuildingPositions.Length > 0)
             {
-                var trans = SystemAPI.GetComponentRW<LocalTransform>(tank.ValueRO.Turret);
+                // Find the nearest DefensiveBuilding.
+                float3 nearestPosition = defensiveBuildingPositions[0];
+                float nearestDistanceSq = math.distancesq(currentPosition, nearestPosition);
 
-                // Add a rotation around the Y axis (relative to the parent).
-                trans.ValueRW.Rotation = math.mul(spin, trans.ValueRO.Rotation);
+                for (int i = 1; i < defensiveBuildingPositions.Length; i++)
+                {
+                    float3 candidatePosition = defensiveBuildingPositions[i];
+                    float candidateDistanceSq = math.distancesq(currentPosition, candidatePosition);
+
+                    if (candidateDistanceSq < nearestDistanceSq)
+                    {
+                        nearestPosition = candidatePosition;
+                        nearestDistanceSq = candidateDistanceSq;
+                    }
+                }
+
+                // Calculate direction to the nearest DefensiveBuilding.
+                float3 direction = math.normalize(nearestPosition - currentPosition);
+
+                // Update the LocalTransform position and rotation towards the target.
+                transform.ValueRW.Position += direction * dt * 5.0f;
+                transform.ValueRW.Rotation = quaternion.LookRotationSafe(direction, math.up());
             }
+            else
+            {
+                // No DefensiveBuilding found, do not move.
+                continue;
+            }
+        }
+
+        // Handle turret rotation for each tank.
+        var spin = quaternion.RotateY(SystemAPI.Time.DeltaTime * math.PI);
+
+        foreach (var tank in SystemAPI.Query<RefRW<Tank>>())
+        {
+            var trans = SystemAPI.GetComponentRW<LocalTransform>(tank.ValueRO.Turret);
+
+            // Add a rotation around the Y axis (relative to the parent).
+            trans.ValueRW.Rotation = math.mul(spin, trans.ValueRO.Rotation);
         }
     }
 }

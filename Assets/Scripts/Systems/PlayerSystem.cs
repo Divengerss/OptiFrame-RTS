@@ -9,6 +9,7 @@ public partial struct PlayerSystem : ISystem
     // this method, so we don't use the [BurstCompile] attribute here.
     public void OnUpdate(ref SystemState state)
     {
+        // Get player input
         var movement = new float3(
             Input.GetAxis("Horizontal"),
             0,
@@ -16,19 +17,16 @@ public partial struct PlayerSystem : ISystem
         );
         movement *= SystemAPI.Time.DeltaTime;
 
-        foreach (var playerTransform in
-                SystemAPI.Query<RefRW<LocalTransform>>()
-                    .WithAll<Player>())
+        foreach (var playerTransform in SystemAPI.Query<RefRW<LocalTransform>>().WithAll<Player>())
         {
-            // move the player tank
-            playerTransform.ValueRW.Position += movement * 2f;
+            var playerRotation = playerTransform.ValueRO.Rotation;
+            var relativeMovement = math.mul(playerRotation, movement);
+            playerTransform.ValueRW.Position += relativeMovement * -2f;
 
-            // move the camera to follow the player
+            // Move the camera to follow the player
             var cameraTransform = Camera.main.transform;
             cameraTransform.position = playerTransform.ValueRO.Position;
-            cameraTransform.position -= 10.0f * (Vector3)playerTransform.ValueRO.Forward();  // move the camera back from the player
-            cameraTransform.position += new Vector3(7.5f, 10f, 0);  // raise the camera by an offset
-            cameraTransform.LookAt(playerTransform.ValueRO.Position);  // look at the player
+            cameraTransform.position -= 8.0f * cameraTransform.forward;  // raise the camera by an offset
         }
     }
 }
